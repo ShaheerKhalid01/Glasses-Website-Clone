@@ -1,7 +1,7 @@
 # Glasses-Website-Clone
 This is a clone of ainak.pk website and here it also have virtual reality feature which makes it able to look more interactive
 Running Procedure:
-🚀 Project Readme: Next.js and Tailwind CSS Starter
+🚀 Project Readme: React.js and Tailwind CSS Starter
 This guide will help you set up and run the project on your local machine. This application is built using Next.js for the frontend and serverless functions, and Tailwind CSS for rapid and utility-first styling.
 
 📋 Prerequisites
