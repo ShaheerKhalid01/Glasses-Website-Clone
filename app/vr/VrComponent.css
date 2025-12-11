@@ -1,0 +1,100 @@
+/* VrComponent.css */
+.vr-container {
+  width: 100%;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background-color: #000;
+}
+
+/* Loading styles */
+.loading-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  z-index: 1000;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 5px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 1s ease-in-out infinite;
+  margin-bottom: 20px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-text {
+  font-size: 1.2rem;
+  margin-top: 10px;
+}
+
+/* Error styles */
+.error-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: #1a1a1a;
+  color: #ff4d4f;
+  padding: 20px;
+  text-align: center;
+  z-index: 1000;
+}
+
+.error-message {
+  font-size: 1.2rem;
+  margin-bottom: 20px;
+  max-width: 80%;
+}
+
+.retry-button {
+  padding: 10px 24px;
+  background-color: #1890ff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.retry-button:hover {
+  background-color: #40a9ff;
+}
+
+.retry-button:active {
+  background-color: #096dd9;
+}
+
+/* A-Frame overrides */
+.a-enter-vr {
+  right: 20px !important;
+  bottom: 20px !important;
+}
+
+/* Hide the A-Frame UI elements we don't need */
+.a-enter-vr-button,
+.a-orientation-modal {
+  display: none !important;
+}
