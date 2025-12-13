@@ -148,7 +148,7 @@ export default function VRPage() {
           embedded
           style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
         >
-          <a-camera active="false" position="0 0 0"></a-camera>
+   <a-camera position="0 0 0"></a-camera>
 
           <a-entity mindar-face-target="anchorIndex: 168">
             <a-entity position="0 0.00 0">
