@@ -37,78 +37,77 @@ export default function VrComponents() {
   }, []);
 
   const forceStopEverything = () => {
-    try {
-      console.log('🛑 FORCE STOPPING everything...');
-      
-      // 1. Stop all video streams IMMEDIATELY
-      const videos = document.querySelectorAll('video');
-      videos.forEach((video, index) => {
-        console.log(`📹 Force stopping video ${index}...`);
-        
-        if (video.srcObject) {
-          const tracks = video.srcObject.getTracks();
-          tracks.forEach((track, trackIndex) => {
-            console.log(`🔴 Stopping track ${trackIndex}: ${track.kind} - ${track.readyState}`);
-            track.stop();
-            track.enabled = false;
-          });
-          video.srcObject = null;
-        }
-        
-        // Force video element cleanup
-        video.pause();
-        video.removeAttribute('src');
-        video.currentTime = 0;
-        video.load();
-        
-        // Remove video element entirely
-        if (video.parentNode) {
-          video.parentNode.removeChild(video);
-        }
-      });
+  try {
+    console.log('🛑 FORCE STOPPING everything...');
 
-      // 2. Stop MindAR immediately
-      const scenes = document.querySelectorAll('a-scene');
-      scenes.forEach(scene => {
-        if (scene.systems && scene.systems['mindar-face-system']) {
-          const mindAR = scene.systems['mindar-face-system'];
-          console.log('🧠 Force stopping MindAR...');
-          
-          if (mindAR.stop) mindAR.stop();
-          if (mindAR.destroy) mindAR.destroy();
-          if (mindAR.el) mindAR.el.removeAttribute('mindar-face');
-        }
-        
-        // Remove scene immediately
-        if (scene.parentNode) {
-          scene.parentNode.removeChild(scene);
-        }
-      });
+    // A) Stop MindAR FIRST (before touching <video> streams)
+    const scenes = document.querySelectorAll('a-scene');
+    scenes.forEach((scene) => {
+      const mindAR = scene?.systems?.['mindar-face-system'];
+      if (!mindAR) return;
 
-      // 3. Clear scene container
-      if (sceneRef.current) {
-        sceneRef.current.innerHTML = '';
+      console.log('🧠 Force stopping MindAR...');
+
+      try {
+        mindAR.stop?.();
+      } catch (e) {
+        console.warn('⚠️ mindAR.stop failed:', e);
       }
 
-      // 4. Global MediaStream cleanup
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-          .then(stream => {
-            stream.getTracks().forEach(track => {
-              console.log('🔴 Global track stop:', track.kind);
-              track.stop();
-              track.enabled = false;
-            });
-          })
-          .catch(() => {}); // Ignore errors
+      try {
+        mindAR.destroy?.();
+      } catch (e) {
+        console.warn('⚠️ mindAR.destroy failed:', e);
       }
 
-      console.log('✅ FORCE STOP completed');
-      
-    } catch (error) {
-      console.error('❌ Force stop error:', error);
+      try {
+        mindAR.el?.removeAttribute?.('mindar-face');
+      } catch (e) {
+        console.warn('⚠️ mindAR removeAttribute failed:', e);
+      }
+    });
+
+    // B) Stop all video streams
+    const videos = document.querySelectorAll('video');
+    videos.forEach((video, index) => {
+      console.log(`📹 Force stopping video ${index}...`);
+
+      if (video.srcObject && video.srcObject.getTracks) {
+        const tracks = video.srcObject.getTracks();
+        tracks.forEach((track, trackIndex) => {
+          console.log(
+            `🔴 Stopping track ${trackIndex}: ${track.kind} - ${track.readyState}`
+          );
+          track.stop();
+          track.enabled = false;
+        });
+        video.srcObject = null;
+      }
+
+      video.pause();
+      video.removeAttribute('src');
+      video.currentTime = 0;
+      video.load();
+
+      if (video.parentNode) {
+        video.parentNode.removeChild(video);
+      }
+    });
+
+    // C) Remove scenes + clear container last
+    scenes.forEach((scene) => {
+      if (scene.parentNode) scene.parentNode.removeChild(scene);
+    });
+
+    if (sceneRef.current) {
+      sceneRef.current.innerHTML = '';
     }
-  };
+
+    console.log('✅ FORCE STOP completed');
+  } catch (error) {
+    console.error('❌ Force stop error:', error);
+  }
+};
 
   const stopAllCameraStreams = () => {
     try {
@@ -116,8 +115,8 @@ export default function VrComponents() {
       const videos = document.querySelectorAll('video');
       videos.forEach(video => {
         console.log('📹 Stopping video stream...');
-        if (video.srcObject) {
-          const tracks = video.srcObject.getTracks();
+        if (video.srcObject && video.srcObject.getTracks) {
+  const tracks = video.srcObject.getTracks();
           tracks.forEach(track => {
             console.log(`🔴 Stopping track: ${track.kind}`);
             track.stop();
@@ -133,7 +132,9 @@ export default function VrComponents() {
       // Stop all MediaStream tracks globally
       navigator.mediaDevices.getUserMedia({ video: true })
         .then(stream => {
-          stream.getTracks().forEach(track => track.stop());
+  if (stream && stream.getTracks) {
+    stream.getTracks().forEach(track => track.stop());
+  }
         })
         .catch(() => {}); // Ignore errors
 
