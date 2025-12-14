@@ -21,7 +21,7 @@ const VRFloatingButton = () => {
         whileTap={{ scale: 0.9 }}
         animate={{
           boxShadow: [
-            '0 10px 30px rgba(14, 165, 233, 0.3)', // Matches primary-500
+            '0 10px 30px rgba(14, 165, 233, 0.3)',
             '0 15px 40px rgba(14, 165, 233, 0.5)',
             '0 10px 30px rgba(14, 165, 233, 0.3)',
           ]
