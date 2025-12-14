@@ -10,6 +10,11 @@ export default function VrComponents() {
   const [isLoading, setIsLoading] = useState(true);
   const [scriptsLoaded, setScriptsLoaded] = useState({ aframe: false, mindar: false });
   
+  // Ref to track if we are currently capturing a photo
+  // This prevents the pagehide/visibility listeners from killing the camera 
+  // when the browser opens a "Save file" dialog.
+  const isCapturingRef = useRef(false);
+  
   useEffect(() => {
     // Only initialize if we're actually on the VR page
     if (typeof window === 'undefined' || window.location.pathname !== '/vr') {
@@ -34,80 +39,82 @@ export default function VrComponents() {
       // Force stop everything immediately
       forceStopEverything();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const forceStopEverything = () => {
-  try {
-    console.log('🛑 FORCE STOPPING everything...');
+    try {
+      console.log('🛑 FORCE STOPPING everything...');
 
-    // A) Stop MindAR FIRST (before touching <video> streams)
-    const scenes = document.querySelectorAll('a-scene');
-    scenes.forEach((scene) => {
-      const mindAR = scene?.systems?.['mindar-face-system'];
-      if (!mindAR) return;
+      // A) Stop MindAR FIRST (before touching <video> streams)
+      const scenes = document.querySelectorAll('a-scene');
+      scenes.forEach((scene) => {
+        const mindAR = scene.systems && scene.systems['mindar-face-system'];
+        if (!mindAR) return;
 
-      console.log('🧠 Force stopping MindAR...');
+        console.log('🧠 Force stopping MindAR...');
 
-      try {
-        mindAR.stop?.();
-      } catch (e) {
-        console.warn('⚠️ mindAR.stop failed:', e);
+        try {
+          mindAR.stop && mindAR.stop();
+        } catch (e) {
+          console.warn('⚠️ mindAR.stop failed:', e);
+        }
+
+        try {
+          mindAR.destroy && mindAR.destroy();
+        } catch (e) {
+          console.warn('⚠️ mindAR.destroy failed:', e);
+        }
+
+        try {
+          scene.removeAttribute && scene.removeAttribute('mindar-face');
+        } catch (e) {
+          console.warn('⚠️ mindAR removeAttribute failed:', e);
+        }
+      });
+
+      // B) Stop all video streams
+      const videos = document.querySelectorAll('video');
+      videos.forEach((video) => {
+        console.log(`📹 Force stopping video...`);
+
+        if (video.srcObject && video.srcObject.getTracks) {
+          const stream = video.srcObject;
+          const tracks = stream.getTracks();
+          tracks.forEach((track, trackIndex) => {
+            console.log(
+              `🔴 Stopping track ${trackIndex}: ${track.kind} - ${track.readyState}`
+            );
+            track.stop();
+            track.enabled = false;
+          });
+          video.srcObject = null;
+        }
+
+        video.pause();
+        video.removeAttribute('src');
+        video.currentTime = 0;
+        video.load();
+
+        if (video.parentNode) {
+          video.parentNode.removeChild(video);
+        }
+      });
+
+      // C) Remove scenes + clear container last
+      scenes.forEach((scene) => {
+        if (scene.parentNode) scene.parentNode.removeChild(scene);
+      });
+
+      if (sceneRef.current) {
+        sceneRef.current.innerHTML = '';
       }
 
-      try {
-        mindAR.destroy?.();
-      } catch (e) {
-        console.warn('⚠️ mindAR.destroy failed:', e);
-      }
-
-      try {
-        mindAR.el?.removeAttribute?.('mindar-face');
-      } catch (e) {
-        console.warn('⚠️ mindAR removeAttribute failed:', e);
-      }
-    });
-
-    // B) Stop all video streams
-    const videos = document.querySelectorAll('video');
-    videos.forEach((video, index) => {
-      console.log(`📹 Force stopping video ${index}...`);
-
-      if (video.srcObject && video.srcObject.getTracks) {
-        const tracks = video.srcObject.getTracks();
-        tracks.forEach((track, trackIndex) => {
-          console.log(
-            `🔴 Stopping track ${trackIndex}: ${track.kind} - ${track.readyState}`
-          );
-          track.stop();
-          track.enabled = false;
-        });
-        video.srcObject = null;
-      }
-
-      video.pause();
-      video.removeAttribute('src');
-      video.currentTime = 0;
-      video.load();
-
-      if (video.parentNode) {
-        video.parentNode.removeChild(video);
-      }
-    });
-
-    // C) Remove scenes + clear container last
-    scenes.forEach((scene) => {
-      if (scene.parentNode) scene.parentNode.removeChild(scene);
-    });
-
-    if (sceneRef.current) {
-      sceneRef.current.innerHTML = '';
+      console.log('✅ FORCE STOP completed');
+    } catch (error) {
+      console.error('❌ Force stop error:', error);
     }
-
-    console.log('✅ FORCE STOP completed');
-  } catch (error) {
-    console.error('❌ Force stop error:', error);
-  }
-};
+  };
 
   const stopAllCameraStreams = () => {
     try {
@@ -116,7 +123,8 @@ export default function VrComponents() {
       videos.forEach(video => {
         console.log('📹 Stopping video stream...');
         if (video.srcObject && video.srcObject.getTracks) {
-  const tracks = video.srcObject.getTracks();
+          const stream = video.srcObject;
+          const tracks = stream.getTracks();
           tracks.forEach(track => {
             console.log(`🔴 Stopping track: ${track.kind}`);
             track.stop();
@@ -132,9 +140,9 @@ export default function VrComponents() {
       // Stop all MediaStream tracks globally
       navigator.mediaDevices.getUserMedia({ video: true })
         .then(stream => {
-  if (stream && stream.getTracks) {
-    stream.getTracks().forEach(track => track.stop());
-  }
+          if (stream && stream.getTracks) {
+            stream.getTracks().forEach(track => track.stop());
+          }
         })
         .catch(() => {}); // Ignore errors
 
@@ -188,12 +196,23 @@ export default function VrComponents() {
       
       // Add global cleanup listeners
       const handlePageUnload = () => {
+        // CRITICAL FIX: Ignore unload triggers if we are in the middle of capturing a photo
+        if (isCapturingRef.current) {
+          console.log('🛡️ Page blur/unload detected, but ignoring due to active capture...');
+          return;
+        }
+
         console.log('📤 Page unloading - FORCE STOPPING camera...');
         forceStopEverything();
       };
 
       const handleVisibilityChange = () => {
         if (document.hidden) {
+          // CRITICAL FIX: Ignore visibility changes (e.g., system dialogs) during capture
+          if (isCapturingRef.current) {
+             console.log('🛡️ Visibility hidden, but ignoring due to active capture...');
+             return;
+          }
           console.log('👁️ Page hidden - FORCE STOPPING camera...');
           forceStopEverything();
         }
@@ -207,13 +226,20 @@ export default function VrComponents() {
       // Listen for page unload and visibility changes
       window.addEventListener('beforeunload', handlePageUnload);
       window.addEventListener('pagehide', handlePageUnload);
-      window.addEventListener('blur', handlePageUnload); // Window loses focus
+      // REMOVED: window.addEventListener('blur', handlePageUnload); // Blur is too aggressive for file downloads
       window.addEventListener('popstate', handleRouteChange); // Browser back/forward
       window.addEventListener('focus', () => {
         // Check if we're still on VR page when returning focus
         if (window.location.pathname !== '/vr') {
           console.log('👁️ Focus returned but not on VR page - stopping camera');
           forceStopEverything();
+        } else {
+          // Attempt to resume video if it was paused by browser backgrounding
+          const video = document.querySelector('video');
+          if (video && video.paused) {
+            console.log('▶️ Resuming video after focus return...');
+            video.play().catch(e => console.log('Could not resume video:', e));
+          }
         }
       });
       document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -222,7 +248,7 @@ export default function VrComponents() {
       window.vrComponentsCleanup = () => {
         window.removeEventListener('beforeunload', handlePageUnload);
         window.removeEventListener('pagehide', handlePageUnload);
-        window.removeEventListener('blur', handlePageUnload);
+        // window.removeEventListener('blur', handlePageUnload); // corresponding removal
         window.removeEventListener('popstate', handleRouteChange);
         window.removeEventListener('focus', () => {});
         document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -466,8 +492,13 @@ export default function VrComponents() {
     try {
       console.log('📷 Capturing AR photo...');
       
+      // 1. Set capturing flag to TRUE to prevent 'blur' listener from stopping camera
+      isCapturingRef.current = true;
+
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
       canvas.width = 1280;
       canvas.height = 720;
 
@@ -477,12 +508,27 @@ export default function VrComponents() {
         ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
         
         canvas.toBlob((blob) => {
+          if (!blob) return;
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
           link.download = `ar-glasses-vrcomponents-${Date.now()}.png`;
           link.click();
           URL.revokeObjectURL(url);
+          
+          // 2. Reset capturing flag after a delay (enough time for download dialog to potentially steal focus and return)
+          setTimeout(() => {
+            isCapturingRef.current = false;
+            console.log('📷 Capture sequence finished, re-enabling cleanup listeners');
+            
+            // Check if video was paused by browser and resume if needed
+            const vid = document.querySelector('video');
+            if (vid && vid.paused) {
+              console.log('▶️ Resuming video after capture...');
+              vid.play().catch(console.error);
+            }
+          }, 5000); // Increased to 5s to cover slow dialogs
+
         }, 'image/png', 0.95);
 
         // Flash effect
@@ -506,9 +552,11 @@ export default function VrComponents() {
         console.log('✅ Photo captured successfully!');
       } else {
         console.warn('⚠️ No video available for capture');
+        isCapturingRef.current = false;
       }
     } catch (error) {
       console.error('❌ Failed to capture photo:', error);
+      isCapturingRef.current = false;
     }
   };
 
