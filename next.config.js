@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
+  // Disabled strict mode to prevent double-initialization of Camera/AR in development
+  reactStrictMode: false,
   async headers() {
     return [
       {
