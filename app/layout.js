@@ -21,10 +21,6 @@ export default function RootLayout({ children }) {
       <head>
         <link rel="preconnect" href="https://cdn.jsdelivr.net" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
-        
-        {/* Preload critical assets - matched exact URL from VrComponents.js */}
-        <link rel="preload" href="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-aframe.prod.js" as="script" crossOrigin="anonymous" />
-        <link rel="preload" href="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face.wasm" as="fetch" type="application/wasm" crossOrigin="anonymous" />
       </head>
       <body className={inter.className}>
         {children}
