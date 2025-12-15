@@ -9,10 +9,29 @@ export default function VrComponents() {
   const sceneRef = useRef(null);
   const previewVideoRef = useRef(null);
   const [isArReady, setIsArReady] = useState(false);
-  const [isPreviewActive, setIsPreviewActive] = useState(false);
   
   const isCapturingRef = useRef(false);
   const previewStreamRef = useRef(null);
+  const isArSetupRef = useRef(false); // Track if AR init has started to prevent camera conflict
+
+  // 0. Filter False Positive Errors (TensorFlow Lite INFO logs)
+  useEffect(() => {
+    const originalError = console.error;
+    console.error = (...args) => {
+      // Suppress specific WASM info logs that are incorrectly piped to console.error
+      if (args[0] && typeof args[0] === 'string' && (
+          args[0].includes('TensorFlow Lite XNNPACK delegate for CPU') ||
+          args[0].includes('Created TensorFlow Lite XNNPACK delegate')
+      )) {
+        return;
+      }
+      originalError.apply(console, args);
+    };
+
+    return () => {
+      console.error = originalError;
+    };
+  }, []);
 
   // 1. Instant Camera Preview
   useEffect(() => {
@@ -20,20 +39,29 @@ export default function VrComponents() {
     
     const startPreview = async () => {
       try {
+        // Check if AR is already setting up; if so, don't start preview to save camera
+        if (isArSetupRef.current || isArReady) return;
+
+        console.log("📷 Requesting preview camera...");
         const stream = await navigator.mediaDevices.getUserMedia({ 
             video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
-        if (!mounted) {
+        
+        // Race condition check: If AR started setting up while we were waiting for camera
+        if (!mounted || isArSetupRef.current) {
+            console.log("🛑 Preview camera arrived too late, stopping immediately.");
             stream.getTracks().forEach(t => t.stop());
             return;
         }
+        
+        console.log("✅ Preview camera active");
         previewStreamRef.current = stream;
         if (previewVideoRef.current) {
             previewVideoRef.current.srcObject = stream;
             previewVideoRef.current.play().catch(() => {});
         }
       } catch (err) {
-        // Silent failure for preview
+        console.warn('Preview camera failed or was pre-empted', err);
       }
     };
     startPreview();
@@ -42,9 +70,10 @@ export default function VrComponents() {
       mounted = false;
       if (previewStreamRef.current) {
         previewStreamRef.current.getTracks().forEach(t => t.stop());
+        previewStreamRef.current = null;
       }
     };
-  }, []);
+  }, []); // Empty deps to run once on mount
 
   // 2. Initialize AR
   useEffect(() => {
@@ -53,58 +82,70 @@ export default function VrComponents() {
     let cleanup = null;
     let sceneInitialized = false;
 
-    const initScene = () => {
+    const initScene = async () => {
         if (sceneInitialized || !sceneRef.current) return;
+        
+        // Mark AR as setting up to block new preview requests
+        isArSetupRef.current = true;
         sceneInitialized = true;
+
+        console.log("🔄 transitioning from Preview to AR...");
+
+        // 1. HARD STOP PREVIEW
+        // We must ensure the camera hardware is released before MindAR asks for it
+        if (previewStreamRef.current) {
+            const tracks = previewStreamRef.current.getTracks();
+            tracks.forEach(t => {
+                t.stop();
+                t.enabled = false;
+            });
+            previewStreamRef.current = null;
+        }
+        if (previewVideoRef.current) {
+            previewVideoRef.current.srcObject = null;
+            previewVideoRef.current.load();
+        }
+
+        // 2. SAFETY DELAY (Crucial for first load)
+        // Give the browser 500ms to fully release the camera hardware lock
+        await new Promise(resolve => setTimeout(resolve, 500)); 
+
+        console.log("🚀 Injecting AR Scene...");
         
-        // Fix: Camera must be active for MindAR to find it via getObject3D('camera')
-        // Glasses Scale: 1 unit = 1 meter.
-        // Anchor 168: Nose Tip.
-        
+        // Add A-Frame scene
         sceneRef.current.innerHTML = `
           <a-scene 
             loading-screen="enabled: false"
             mindar-face="autoStart: true; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.001; filterBeta: 1000"
             embedded color-space="sRGB" 
-            renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true; antialias: true; preserveDrawingBuffer: true;"
+            renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true; antialias: true;"
             vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false"
             style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 20;"
             background="color: transparent; transparent: true"
             id="ar-scene"
           >
-            <!-- Lighting -->
             <a-light type="ambient" color="#ffffff" intensity="1.2"></a-light>
             <a-light type="directional" position="0.5 1 1" color="#ffffff" intensity="1.5"></a-light>
             <a-light type="point" position="0 0 0.5" color="#fff" intensity="0.5"></a-light>
             
-            <!-- Face Tracking Target -->
             <a-entity mindar-face-target="anchorIndex: 168">
-                <!-- Glasses Group -->
-                <!-- Positioned slightly forward (z: 0.0) and adjusted for nose bridge -->
-                <!-- SCALED 5.5X AS REQUESTED -->
                 <a-entity id="glasses-group" position="0 -0.01 0" rotation="0 0 0" scale="5.5 5.5 5.5">
-                
-                    <!-- Frame Color Material -->
                     <a-asset-item id="gold-material" src=""></a-asset-item>
                     
-                    <!-- Left Lens Frame -->
                     <a-torus position="-0.032 0 0" radius="0.026" radius-tubular="0.002" 
                         material="color: #FFD700; metalness: 0.8; roughness: 0.2"
                         segments-tubular="64" segments-radial="16">
                     </a-torus>
                     
-                    <!-- Right Lens Frame -->
                     <a-torus position="0.032 0 0" radius="0.026" radius-tubular="0.002" 
                         material="color: #FFD700; metalness: 0.8; roughness: 0.2"
                         segments-tubular="64" segments-radial="16">
                     </a-torus>
                     
-                    <!-- Bridge -->
                     <a-cylinder position="0 0 0" height="0.015" radius="0.0015" rotation="0 0 90" 
                         material="color: #FFD700; metalness: 0.8; roughness: 0.2">
                     </a-cylinder>
 
-                    <!-- Lenses (Blue Tint) -->
                     <a-circle position="-0.032 0 0.001" radius="0.025" 
                         material="color: #4A9EFF; opacity: 0.5; transparent: true; metalness: 0.9; roughness: 0.0; side: double">
                     </a-circle>
@@ -112,7 +153,6 @@ export default function VrComponents() {
                         material="color: #4A9EFF; opacity: 0.5; transparent: true; metalness: 0.9; roughness: 0.0; side: double">
                     </a-circle>
 
-                    <!-- Temples (Arms) -->
                     <a-cylinder position="-0.06 0 -0.07" height="0.14" radius="0.0015" rotation="90 0 0"
                         material="color: #FFD700; metalness: 0.8; roughness: 0.2">
                     </a-cylinder>
@@ -120,14 +160,11 @@ export default function VrComponents() {
                         material="color: #FFD700; metalness: 0.8; roughness: 0.2">
                     </a-cylinder>
                     
-                    <!-- Nose Pads -->
                     <a-sphere position="-0.01 -0.005 -0.005" radius="0.002" color="#cccccc"></a-sphere>
                     <a-sphere position="0.01 -0.005 -0.005" radius="0.002" color="#cccccc"></a-sphere>
-
                 </a-entity>
             </a-entity>
             
-            <!-- Camera MUST be active for MindAR to work -->
             <a-camera position="0 0 0" active="true" look-controls="enabled: false"></a-camera>
           </a-scene>
         `;
@@ -137,18 +174,6 @@ export default function VrComponents() {
         const onReady = () => {
             console.log("MindAR Ready");
             setIsArReady(true);
-            
-            // Cleanup preview video stream once AR is ready to free up camera resource if needed
-            // although MindAR usually shares it or takes over.
-            if (previewStreamRef.current) {
-                // We don't stop tracks immediately to avoid black flash, wait a bit
-                setTimeout(() => {
-                    // previewStreamRef.current?.getTracks().forEach(t => t.stop()); 
-                    // Note: MindAR might be using the same device. Stopping tracks might kill MindAR if they share the source.
-                    // Safest is just to hide the preview video element.
-                    setIsPreviewActive(false); 
-                }, 500);
-            }
         };
         
         const onError = (e) => {
@@ -185,51 +210,73 @@ export default function VrComponents() {
         };
     };
 
-    // Script Loading Logic
-    const loadScripts = () => {
+    const loadScripts = async () => {
+        // Double check globals
         if (window.AFRAME && window.MINDAR) {
             initScene();
             return;
         }
 
-        const scripts = [
-            'https://aframe.io/releases/1.4.2/aframe.min.js',
-            'https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-face-aframe.prod.js'
-        ];
+        const loadScript = (src) => {
+            return new Promise((resolve, reject) => {
+                let s = document.querySelector(`script[src="${src}"]`);
+                if (s) {
+                    if (s.dataset.loaded === 'true') {
+                        resolve();
+                    } else {
+                        s.addEventListener('load', () => resolve());
+                        s.addEventListener('error', (e) => reject(new Error(`Failed to load ${src}`)));
+                    }
+                    return;
+                }
+                
+                s = document.createElement('script');
+                s.src = src;
+                s.async = false; 
+                s.crossOrigin = 'anonymous'; 
+                s.dataset.loaded = 'false';
+                
+                s.onload = () => {
+                    s.dataset.loaded = 'true';
+                    resolve();
+                };
+                s.onerror = (e) => reject(new Error(`Failed to load ${src}`));
+                
+                document.head.appendChild(s);
+            });
+        };
 
-        scripts.forEach(src => {
-            if (!document.querySelector(`script[src="${src}"]`)) {
-                const script = document.createElement('script');
-                script.src = src;
-                script.async = false;
-                script.crossOrigin = 'anonymous';
-                document.head.appendChild(script);
-            }
-        });
+        try {
+            await loadScript('https://cdn.jsdelivr.net/npm/aframe@1.4.2/dist/aframe-v1.4.2.min.js');
+            
+            await new Promise(resolve => {
+                const check = setInterval(() => {
+                    if (window.AFRAME) {
+                        clearInterval(check);
+                        resolve();
+                    }
+                }, 50);
+            });
 
-        const timer = setInterval(() => {
-            if (window.AFRAME && window.MINDAR) {
-                clearInterval(timer);
-                initScene();
-            }
-        }, 100);
-
-        setTimeout(() => clearInterval(timer), 15000);
-        return () => clearInterval(timer);
+            await loadScript('https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-aframe.prod.js');
+            
+            initScene();
+        } catch (err) {
+            console.error("Error loading AR scripts:", err);
+        }
     };
 
-    const stopPolling = loadScripts();
+    loadScripts();
 
     return () => {
-        if (stopPolling) stopPolling();
         if (cleanup) cleanup();
+        isArSetupRef.current = false;
     };
   }, []);
 
-  // 3. UI Cleaner & Visibility Enforcer
+  // 3. UI Cleaner
   useEffect(() => {
     const cleanUI = () => {
-        // 1. Remove Annoying Elements
         const classesToCheck = [
             '.mindar-ui-overlay', 
             '.mindar-ui-loading', 
@@ -238,7 +285,7 @@ export default function VrComponents() {
             '.a-fullscreen', 
             '.a-modal', 
             '.a-enter-vr', 
-            '.a-enter-vr-button',
+            '.a-enter-vr-button', 
             '.a-orientation-modal'
         ];
         
@@ -249,27 +296,10 @@ export default function VrComponents() {
             el.remove();
         });
 
-        // 2. Remove Text Nodes (Cautiously)
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-        let node;
-        while(node = walker.nextNode()) {
-            const text = node.nodeValue?.trim();
-            if (text === 'Initializing VR...' || text === 'Loading...' || text === 'VR') {
-                const parent = node.parentElement;
-                if (parent && 
-                    parent.tagName !== 'SCRIPT' && 
-                    parent.tagName !== 'STYLE' && 
-                    !sceneRef.current?.contains(parent)) {
-                    parent.style.display = 'none';
-                }
-            }
-        }
-
-        // 3. Enforce Layers
         const videos = document.querySelectorAll('video');
         videos.forEach(v => {
+            // If it's NOT the preview video, it must be the AR video
             if (v !== previewVideoRef.current) {
-                // MindAR Video
                 v.style.position = 'absolute';
                 v.style.top = '0';
                 v.style.left = '0';
@@ -279,6 +309,9 @@ export default function VrComponents() {
                 v.style.width = '100%';
                 v.style.height = '100%';
                 v.style.objectFit = 'cover';
+                
+                // Ensure it plays
+                if (v.paused) v.play().catch(() => {});
             }
         });
 
