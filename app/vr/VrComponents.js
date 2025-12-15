@@ -112,11 +112,11 @@ export default function VrComponents() {
 
         console.log("🚀 Injecting AR Scene...");
         
-        // Add A-Frame scene
+        // Add A-Frame scene with autoStart: false
         sceneRef.current.innerHTML = `
           <a-scene 
             loading-screen="enabled: false"
-            mindar-face="autoStart: true; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.001; filterBeta: 1000"
+            mindar-face="autoStart: false; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.001; filterBeta: 1000"
             embedded color-space="sRGB" 
             renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true; antialias: true;"
             vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false"
@@ -171,22 +171,45 @@ export default function VrComponents() {
         
         const sceneEl = document.getElementById('ar-scene');
         
+        // 3. START MINDAR ONLY AFTER SCENE LOADS
+        // This fixes the 'getObject3D' undefined error by ensuring the camera entity exists
+        const startMindAR = () => {
+            console.log("✅ Scene loaded. Starting MindAR system...");
+            try {
+                // Safely access the system
+                const system = sceneEl.systems['mindar-face-system'];
+                if (system && !system.active) {
+                    system.start();
+                }
+            } catch (e) {
+                console.error("Failed to start MindAR:", e);
+            }
+        };
+
         const onReady = () => {
-            console.log("MindAR Ready");
+            console.log("MindAR Ready event received");
             setIsArReady(true);
         };
         
         const onError = (e) => {
-            console.error("AR Error", e);
+            console.error("AR Error event:", e);
         };
 
         if (sceneEl) {
+            // Listen for scene load to start AR
+            if (sceneEl.hasLoaded) {
+                startMindAR();
+            } else {
+                sceneEl.addEventListener('loaded', startMindAR);
+            }
+
             sceneEl.addEventListener('mindar-face-ready', onReady);
             sceneEl.addEventListener('arError', onError);
         }
 
         cleanup = () => {
             if (sceneEl) {
+                sceneEl.removeEventListener('loaded', startMindAR);
                 sceneEl.removeEventListener('mindar-face-ready', onReady);
                 sceneEl.removeEventListener('arError', onError);
                 try {
